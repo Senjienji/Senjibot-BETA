@@ -13,13 +13,13 @@ bot = commands.Bot(
     ),
     intents=discord.Intents.all()
 )
-database = mysql.connector.connect(
+db = mysql.connector.connect(
     host="127.0.0.1",
     user="user",
     password="password",
     database="senjibot"
 )
-cursor = database.cursor()
+cursor = db.cursor()
 test_guild = discord.Object(809722018953166858)
 
 @bot.event
@@ -64,7 +64,7 @@ async def sync(ctx):
 
 @bot.tree.command(name="ping")
 async def ping2(inter):
-    await inter.response.send_message(f"Ping! {int(bot.latency*1000)}ms")
+    await inter.followup.send(f"Ping! {int(bot.latency*1000)}ms")
 
 @bot.tree.command(name="send")
 async def send2(inter, channel: discord.TextChannel, message: str):
@@ -75,22 +75,31 @@ async def send2(inter, channel: discord.TextChannel, message: str):
 person = app_commands.Group(name="person", description="...")
 
 @person.command()
-async def add(inter, first_name:str, last_name:str=None, birthdate:str=None, address:str=None):
-    pass
+async def add(inter, name: str, address: str=None):
+    await inter.response.defer()
+    cursor.execute("INSERT INTO person (name, address) VALUES (%s, %s);", (name, address))
+    db.commit()
+    await inter.followup.send(f"Added {name}.")
 
 @person.command()
-async def remove(inter, first_name:str):
-    pass
+async def remove(inter, name: str):
+    await inter.response.defer()
+    cursor.execute("DELETE FROM person WHERE name = %s;", (name,))
+    db.commit()
+    await inter.followup.send(f"Removed {name}.")
 
 @person.command()
-async def edit(inter, first_name:str, last_name:str=None, birthdate:str=None, address:str=None):
-    pass
+async def edit(inter, name: str, address: str=None):
+    await inter.response.defer()
+    cursor.execute("UPDATE person SET address = %s WHERE name = %s;", (address, name))
+    db.commit()
+    await inter.followup.send(f"Edited {name}.")
 
 @person.command(name="list")
 async def names(inter):
     await inter.response.defer()
     cursor.execute("SELECT * FROM person")
-    await inter.response.send_message("\n".join(f"{i}" for i in cursor.fetchall()))
+    await inter.followup.send("\n".join(f"{i}" for i in cursor.fetchall()))
 
 bot.tree.add_command(person)
 
