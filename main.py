@@ -1,35 +1,43 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-import mysql.connector
+import asyncio
+import asyncpg
 import os
 
-bot = commands.Bot(
-    command_prefix="s?",
-    owner_id="902371374033670224",
+class SenjibotBETA(commands.Bot):
+    def __init__(self, *args, **kwargs):
+        self.test_guild = discord.Object(kwargs.pop('test_guild'))
+        self.db = None
+        super().__init__(*args, **kwargs)
+
+    async def setup_hook(self):
+        self.tree.copy_global_to(guild=self.test_guild)
+        self.db = await asyncpg.create_pool(
+            user='bot',
+            password='password',
+            database='senjibot',
+            host='127.0.0.1'
+        )
+
+bot = SenjibotBETA(
+    command_prefix='s?',
+    owner_id=902371374033670224,
+    test_guild=809722018953166858,
     help_command=None,
     allowed_mentions=discord.AllowedMentions(
         replied_user=False
     ),
-    intents=discord.Intents.all()
+    intents=discord.Intents.all(),
 )
-db = mysql.connector.connect(
-    host="127.0.0.1",
-    user="user",
-    password="password",
-    database="senjibot"
-)
-cursor = db.cursor()
-test_guild = discord.Object(809722018953166858)
 
 @bot.event
 async def on_connect():
-    bot.tree.copy_global_to(guild=test_guild)
-    print("Connected")
+    print('Connected')
 
 @bot.event
 async def on_ready():
-    print("Ready")
+    print('Ready')
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -50,57 +58,59 @@ async def on_error(inter, error):
 
 @bot.command()
 async def ping(ctx):
-    await ctx.reply(f"Ping! {int(bot.latency*1000)}ms")
+    await ctx.reply(f'Ping! {int(bot.latency*1000)}ms')
 
 @bot.command()
 async def send(ctx, channel: discord.TextChannel, *, message):
     await channel.send(message)
-    await ctx.message.add_reaction("\U00002705")
+    await ctx.message.add_reaction('\U00002705')
 
 @bot.command()
 async def sync(ctx):
-    await bot.tree.sync(guild=test_guild)
-    await ctx.message.add_reaction("\U00002705")
+    await bot.tree.sync(guild=bot.test_guild)
+    await ctx.message.add_reaction('\U00002705')
 
-@bot.tree.command(name="ping")
+@bot.tree.command(name='ping')
 async def ping2(inter):
-    await inter.followup.send(f"Ping! {int(bot.latency*1000)}ms")
+    await inter.response.send_message(f'Ping! {int(bot.latency*1000)}ms')
 
-@bot.tree.command(name="send")
+@bot.tree.command(name='send')
 async def send2(inter, channel: discord.TextChannel, message: str):
     await inter.response.defer(ephemeral=True)
     await channel.send(message)
-    await inter.followup.send("Sent")
+    await inter.response.send_message('Sent')
 
-person = app_commands.Group(name="person", description="...")
+person = app_commands.Group(name='person', description='...')
 
 @person.command()
 async def add(inter, name: str, address: str=None):
-    await inter.response.defer()
-    cursor.execute("INSERT INTO person (name, address) VALUES (%s, %s);", (name, address))
+    cursor.execute('INSERT INTO person (name, address) VALUES (%s, %s);', (name, address))
     db.commit()
-    await inter.followup.send(f"Added {name}.")
+    await inter.response.send_message(f'Added {name}.')
 
 @person.command()
 async def remove(inter, name: str):
-    await inter.response.defer()
-    cursor.execute("DELETE FROM person WHERE name = %s;", (name,))
+    cursor.execute('DELETE FROM person WHERE name = %s;', (name,))
     db.commit()
-    await inter.followup.send(f"Removed {name}.")
+    await inter.response.send_message(f'Removed {name}.')
 
 @person.command()
 async def edit(inter, name: str, address: str=None):
-    await inter.response.defer()
-    cursor.execute("UPDATE person SET address = %s WHERE name = %s;", (address, name))
+    cursor.execute('UPDATE person SET address = %s WHERE name = %s;', (address, name))
     db.commit()
-    await inter.followup.send(f"Edited {name}.")
+    await inter.response.send_message(f'Edited {name}.')
 
-@person.command(name="list")
+@person.command(name='list')
 async def names(inter):
-    await inter.response.defer()
-    cursor.execute("SELECT * FROM person")
-    await inter.followup.send("\n".join(f"{i}" for i in cursor.fetchall()))
+    async with bot.db.acquire() as conn:
+        rows = await conn.fetch('SELECT * FROM person;')
+    await inter.response.send_message('\n'.join(r['name']+r['email'] for r in rows))
 
 bot.tree.add_command(person)
 
-bot.run(os.environ["SENJIBOT_BETA_TOKEN"])
+try:
+    bot.run(os.environ['SENJIBOT_BETA_TOKEN'])
+except (RuntimeError, KeyboardInterrupt):
+    print('idk')
+finally:
+    asyncio.run(bot.db.close())
