@@ -1,12 +1,12 @@
 # Senjibot BETA
 
-## Closed BETA version of Senjibot
+*Closed BETA version of Senjibot*
 slow but steady development
 
-current features:
+## current features:
 - ...
 
-# Resources
+## Resources
 - Termux
 - Discord.py
 - PostgreSQL
