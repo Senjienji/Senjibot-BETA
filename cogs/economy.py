@@ -15,14 +15,6 @@ class Economy(commands.Cog):
         print(f'Cog "{self.__class__.__name__}" unloaded.')
 
     async def interaction_check(self, inter) -> bool:
-        """async with self.bot.db.acquire() as conn:
-            #async with conn.transaction():
-            await conn.execute(
-                '''INSERT INTO economy.member_data (guild_id, user_id)
-VALUES ($1, $2)
-ON CONFLICT (guild_id, user_id) DO NOTHING;''',
-                inter.guild.id, inter.user.id
-            )"""
         return True
 
     @commands.command(name='add-money', aliases=('add',))
@@ -52,12 +44,6 @@ SET guild_id = EXCLUDED.guild_id
 RETURNING wallet, bank''',
                     inter.guild.id, member.id
                 )
-                """row = await conn.fetchrow(
-                    '''SELECT wallet, bank
-FROM economy.member_data
-WHERE guild_id = $1 AND user_id = $2;''',
-                    inter.guild.id, member.id
-                )"""
                 await inter.response.send_message(f'''{member.mention} Balance
 
 Wallet: ${row["wallet"]:.2f}
