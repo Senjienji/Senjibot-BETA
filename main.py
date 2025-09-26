@@ -31,15 +31,9 @@ bot = SenjibotBETA(
     owner_id=902371374033670224,
     test_guild=809722018953166858,
     help_command=None,
-    allowed_mentions=discord.AllowedMentions(
-        replied_user=False,
-        everyone=False
-    ),
+    allowed_mentions=discord.AllowedMentions.none(),
     intents=discord.Intents.all(),
-    activity=discord.CustomActivity(
-        emoji=discord.PartialEmoji.from_str('<:HappyThonk:812240504094720020>'),
-        name='epok'
-    ),
+    activity=discord.CustomActivity(name='epok'),
     status=discord.Status.idle
 )
 
@@ -91,7 +85,7 @@ async def sync(ctx):
 async def uptime(ctx):
     await ctx.reply(f'Uptime: {utils.format_dt(bot.launch_time, style="R")}')
 
-@bot.command(name='load-cog', aliases=['lc'])
+@bot.command(name='load-cog', aliases=('lc',))
 async def load_cog(ctx, cog):
     if 'cogs.'+cog in bot.extensions:
         await bot.reload_extension('cogs.'+cog)
@@ -100,7 +94,7 @@ async def load_cog(ctx, cog):
         await bot.load_extension('cogs.'+cog)
         await ctx.reply(f'Cog "{cog}" loaded.')
 
-@bot.command(name='unload-cog', aliases=['uc'])
+@bot.command(name='unload-cog', aliases=('uc',))
 async def unload_cog(ctx, cog):
     if 'cogs.'+cog in bot.extensions:
         await bot.unload_extension('cogs.'+cog)
@@ -108,7 +102,7 @@ async def unload_cog(ctx, cog):
     else:
         await ctx.reply(f'Cog "{cog}" not loaded.')
 
-@bot.command(name='eval', aliases=['e'])
+@bot.command(name='eval', aliases=('e',))
 async def evaluate(ctx, *, code):
     await ctx.reply(eval(code))
 
