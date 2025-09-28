@@ -2,9 +2,13 @@ import discord
 from discord.ext import commands
 from discord import app_commands, utils
 import asyncpg
+from dotenv import load_dotenv()
 import datetime
 import asyncio
 import os
+
+load_dotenv()
+
 
 class SenjibotBETA(commands.Bot):
     def __init__(self, *args, **kwargs):
@@ -14,10 +18,11 @@ class SenjibotBETA(commands.Bot):
 
     async def setup_hook(self):
         self.db = await asyncpg.create_pool(
+            host=os.environ['POSTGRESQL_HOST'],
+            port=os.environ['POSTGRESQL_PORT'],
+            password=os.environ['POSTGRESQL_PASSWORD',
             user='bot',
-            password='password',
-            database='senjibot',
-            host='127.0.0.1'
+            database='senjibot'
         )
         for filename in os.listdir('cogs'):
             if filename == '__pycache__': continue
