@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands, utils
 import asyncpg
-from dotenv import load_dotenv()
+from dotenv import load_dotenv
 import datetime
 import asyncio
 import os
@@ -20,7 +20,7 @@ class SenjibotBETA(commands.Bot):
         self.db = await asyncpg.create_pool(
             host=os.environ['POSTGRESQL_HOST'],
             port=os.environ['POSTGRESQL_PORT'],
-            password=os.environ['POSTGRESQL_PASSWORD',
+            password=os.environ['POSTGRESQL_PASSWORD'],
             user='bot',
             database='senjibot'
         )
