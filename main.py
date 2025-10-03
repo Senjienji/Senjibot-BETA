@@ -11,10 +11,10 @@ load_dotenv()
 
 
 class SenjibotBETA(commands.Bot):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, **kwargs):
         self.test_guild = discord.Object(kwargs.pop('test_guild'))
         self.db = None
-        super().__init__(*args, **kwargs)
+        super().__init__(**kwargs)
 
     async def setup_hook(self):
         self.db = await asyncpg.create_pool(
@@ -37,14 +37,15 @@ bot = SenjibotBETA(
     test_guild=809722018953166858,
     help_command=None,
     allowed_mentions=discord.AllowedMentions.none(),
-    intents=discord.Intents.all(),
+    intents=discord.Intents(
+        guilds=True,
+        members=True,
+        messages=True,
+        message_content=True
+    ),
     activity=discord.CustomActivity(name='epok'),
     status=discord.Status.idle
 )
-
-@bot.check
-async def owner_check(ctx):
-    return await bot.is_owner(ctx.author)
 
 @bot.event
 async def on_connect():
@@ -56,7 +57,12 @@ async def on_ready():
 
 @bot.event
 async def on_command_error(ctx, error):
-    if isinstance(error, commands.CheckFailure): return
+    if isinstance(error, (
+        commands.CheckFailure,
+        commands.CommandNotFound,
+        commands.DisabledCommand
+    )): return
+
     try:
         await ctx.reply(error)
     except:
@@ -72,6 +78,10 @@ async def on_error(inter, error):
         await inter.response.send_message(error)
     await app_commands.CommandTree.on_error(bot.tree, inter, error)
 
+@bot.before_invoke
+async def before_invoke(ctx):
+    await ctx.typing()
+
 @bot.command()
 async def ping(ctx):
     await ctx.reply(f'Ping! {int(bot.latency*1000)}ms.')
@@ -82,15 +92,17 @@ async def send(ctx, channel: discord.TextChannel, *, message):
     await ctx.message.add_reaction('\U00002705')
 
 @bot.command()
+async def uptime(ctx):
+    await ctx.reply(f'Uptime: {utils.format_dt(bot.launch_time, style="R")}')
+
+@bot.command()
+@commands.is_owner()
 async def sync(ctx):
     await bot.tree.sync(guild=bot.test_guild)
     await ctx.message.add_reaction('\U00002705')
 
-@bot.command()
-async def uptime(ctx):
-    await ctx.reply(f'Uptime: {utils.format_dt(bot.launch_time, style="R")}')
-
 @bot.command(name='load-cog', aliases=('lc',))
+@commands.is_owner()
 async def load_cog(ctx, cog):
     if 'cogs.'+cog in bot.extensions:
         await bot.reload_extension('cogs.'+cog)
@@ -100,6 +112,7 @@ async def load_cog(ctx, cog):
         await ctx.reply(f'Cog "{cog}" loaded.')
 
 @bot.command(name='unload-cog', aliases=('uc',))
+@commands.is_owner()
 async def unload_cog(ctx, cog):
     if 'cogs.'+cog in bot.extensions:
         await bot.unload_extension('cogs.'+cog)
@@ -108,6 +121,7 @@ async def unload_cog(ctx, cog):
         await ctx.reply(f'Cog "{cog}" not loaded.')
 
 @bot.command(name='eval', aliases=('e',))
+@commands.is_owner()
 async def evaluate(ctx, *, code):
     await ctx.reply(eval(code))
 
@@ -118,40 +132,55 @@ async def slashping(inter):
 person = app_commands.Group(name='person', description='...')
 
 @person.command()
-async def add(inter, name: str, email: str=None):
-    async with bot.db.acquire() as conn:
-        try:
-            await conn.execute('INSERT INTO person (name, email) VALUES ($1, $2);', name, email)
-            await inter.response.send_message(f'Added "{name}".')
-        except asyncpg.exceptions.UniqueViolationError:
-            await inter.response.send_message('Error: This email has already been used. Please use another email.')
+async def add(inter, name: str, address: str=None):
+    try:
+        await bot.db.execute(
+            """INSERT INTO person (name, address)
+VALUES ($1, $2);""",
+            name, address
+        )
+        await inter.response.send_message(f'Added "{name}".')
+    except asyncpg.exceptions.UniqueViolationError:
+        await inter.response.send_message('Error: This name has already been taken.')
 
 @person.command()
 async def remove(inter, name: str):
-    async with bot.db.acquire() as conn:
-        status = await conn.execute('DELETE FROM person WHERE name = $1;', name)
-        if status.split()[1]:
-            await inter.response.send_message(f'Removed "{name}".')
-        else:
-            await inter.response.send_message(f'"{name}" not found.')
+    status = await bot.db.execute(
+        """DELETE FROM person
+WHERE name = $1;""",
+        name
+    )
+    if int(status.split()[1]):
+        await inter.response.send_message(f'Removed "{name}".')
+    else:
+        await inter.response.send_message(f'"{name}" not found.')
 
 @person.command()
-async def edit(inter, name: str, email: str=None):
-    async with bot.db.acquire() as conn:
-        status = await conn.execute('UPDATE person SET email = $2 WHERE name = $1;', name, email)
-        if status.split()[1]:
-            await inter.response.send_message(f'Edited "{name}".')
-        else:
-            await conn.execute('INSERT INTO person (name, email) VALUES ($1, $2)', (name, email))
-            await inter.response.send_message(f'"{name}" not found, added instead.')
+async def edit(inter, name: str, address: str=None):
+    status = await bot.db.execute(
+        """UPDATE person
+SET address = $2
+WHERE name = $1;""",
+        name, address
+    )
+    if int(status.split()[1]):
+        await inter.response.send_message(f'Changed address for "{name}".')
+    else:
+        await inter.response.send_message(f'"{name}" not found.')
 
 @person.command(name='list')
 async def names(inter):
-    async with bot.db.acquire() as conn:
-        rows = await conn.fetch('SELECT * FROM person;')
-    await inter.response.send_message('\n'.join(f'{r["name"]}: `{r["email"]}`' for r in rows))
+    rows = await bot.db.fetch('SELECT * FROM person;')
+    await inter.response.send_message('\n'.join(f'"{r["name"]}": {r["address"]}' for r in rows))
 
 bot.tree.add_command(person)
 
-bot.run(os.environ['SENJIBOT_BETA_TOKEN'])
-asyncio.run(bot.db.close())
+async def main():
+    try:
+        utils.setup_logging()
+        await bot.start(os.environ['SENJIBOT_BETA_TOKEN'])
+    finally:
+        await bot.db.close()
+
+if __name__ == '__main__':
+    asyncio.run(main())
