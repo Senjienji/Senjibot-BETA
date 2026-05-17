@@ -1,19 +1,36 @@
 import discord
 from discord.ext import commands
-from discord import app_commands, utils
+from discord import app_commands, utils, ui
 import asyncpg
 from dotenv import load_dotenv
-import datetime
+from typing import Optional
+from logging import getLogger
 import asyncio
 import os
 
 load_dotenv()
+logger = getLogger(__name__)
+
+
+class NewTree(app_commands.CommandTree):
+    async def on_error(self, inter, error):
+        try:
+            async with asyncio.timeout(5):
+                if inter.response.is_done():
+                    await inter.followup.send(f'{type(error).__name__}: {error}')
+                else:
+                    await inter.response.send_message(f'{type(error).__name__}: {error}', ephemeral=True)
+        except asyncio.TimeoutError:
+            logger.warning('Timed out trying to notify user of error in "%s"', inter.command.name)
+        except discord.HTTPException:
+            logger.warning('Failed trying to notify user of error in "%s"', inter.command.name)
+        await super().on_error(inter, error)
 
 
 class SenjibotBETA(commands.Bot):
     def __init__(self, **kwargs):
         self.test_guild = discord.Object(kwargs.pop('test_guild'))
-        self.db = None
+        self.db: asyncpg.Pool | None = None
         super().__init__(**kwargs)
 
     async def setup_hook(self):
@@ -22,20 +39,45 @@ class SenjibotBETA(commands.Bot):
             port=os.environ['POSTGRESQL_PORT'],
             password=os.environ['POSTGRESQL_PASSWORD'],
             user='bot',
-            database='senjibot'
+            database='senjibot',
+            min_size=1,
+            max_size=5
         )
         for filename in os.listdir('cogs'):
-            if filename == '__pycache__': continue
-            await self.load_extension('cogs.'+filename.split('.')[0])
+            if not filename.endswith('.py'): continue
+            await self.load_extension('cogs.'+filename[0:-3])
 
         self.tree.copy_global_to(guild=self.test_guild)
         self.launch_time = utils.utcnow()
+
+    async def on_command_error(self, ctx, error):
+        if isinstance(error, (
+            commands.CheckFailure,
+            commands.CommandNotFound,
+            commands.DisabledCommand
+        )): return
+
+        try:
+            async with asyncio.timeout(5):
+                await ctx.reply(f'{type(error).__name__}: {error}')
+        except asyncio.TimeoutError:
+            logger.warning('Timed out trying to notify user of error in "%s"', ctx.command.name)
+        except discord.HTTPException:
+            logger.warning('Failed trying to notify user of error in "%s"', ctx.command.name)
+        await super().on_command_error(ctx, error)
+
+    async def close(self):
+        print('\nClosing...')
+        await self.db.close()
+        await super().close()
+
 
 bot = SenjibotBETA(
     command_prefix='s?',
     owner_id=902371374033670224,
     test_guild=809722018953166858,
     help_command=None,
+    description='...',
     allowed_mentions=discord.AllowedMentions.none(),
     intents=discord.Intents(
         guilds=True,
@@ -43,65 +85,46 @@ bot = SenjibotBETA(
         messages=True,
         message_content=True
     ),
+    tree_cls=NewTree,
     activity=discord.CustomActivity(name='epok'),
     status=discord.Status.idle
 )
 
 @bot.event
 async def on_connect():
-    print('Connected.')
+    print('Connected')
 
 @bot.event
 async def on_ready():
-    print('Ready.')
-
-@bot.event
-async def on_command_error(ctx, error):
-    if isinstance(error, (
-        commands.CheckFailure,
-        commands.CommandNotFound,
-        commands.DisabledCommand
-    )): return
-
-    try:
-        await ctx.reply(error)
-    except:
-        pass
-    finally:
-        await commands.Bot.on_command_error(bot, ctx, error)
-
-@bot.tree.error
-async def on_error(inter, error):
-    if inter.response.is_done():
-        await inter.edit_original_response(content=error)
-    else:
-        await inter.response.send_message(error)
-    await app_commands.CommandTree.on_error(bot.tree, inter, error)
+    print('Ready')
 
 @bot.before_invoke
 async def before_invoke(ctx):
+    if ctx.command.name in ('sync', 'send'): return
+
     await ctx.typing()
 
-@bot.command()
+@bot.command(aliases=('p',))
 async def ping(ctx):
     await ctx.reply(f'Ping! {int(bot.latency*1000)}ms.')
 
 @bot.command()
-async def send(ctx, channel: discord.TextChannel, *, message):
+async def send(ctx, channel: Optional[discord.TextChannel], *, message):
+    channel = channel or ctx.channel
     await channel.send(message)
     await ctx.message.add_reaction('\U00002705')
 
-@bot.command()
+@bot.command(aliases=('up',))
 async def uptime(ctx):
     await ctx.reply(f'Uptime: {utils.format_dt(bot.launch_time, style="R")}')
 
-@bot.command()
+@bot.command(aliases=('s',))
 @commands.is_owner()
 async def sync(ctx):
     await bot.tree.sync(guild=bot.test_guild)
     await ctx.message.add_reaction('\U00002705')
 
-@bot.command(name='load-cog', aliases=('lc',))
+@bot.command(name='load', aliases=('l',))
 @commands.is_owner()
 async def load_cog(ctx, cog):
     if 'cogs.'+cog in bot.extensions:
@@ -111,7 +134,7 @@ async def load_cog(ctx, cog):
         await bot.load_extension('cogs.'+cog)
         await ctx.reply(f'Cog "{cog}" loaded.')
 
-@bot.command(name='unload-cog', aliases=('uc',))
+@bot.command(name='unload', aliases=('u',))
 @commands.is_owner()
 async def unload_cog(ctx, cog):
     if 'cogs.'+cog in bot.extensions:
@@ -123,64 +146,25 @@ async def unload_cog(ctx, cog):
 @bot.command(name='eval', aliases=('e',))
 @commands.is_owner()
 async def evaluate(ctx, *, code):
-    await ctx.reply(eval(code))
+    try:
+        if code.startswith('await '):
+            await ctx.reply(await eval(code[5:]))
+        else:
+            await ctx.reply(eval(code))
+    except Exception as error:
+        await ctx.reply(f'{type(error).__name__}: {error}')
 
 @bot.tree.command(name='ping')
 async def slashping(inter):
     await inter.response.send_message(f'Ping! {int(bot.latency*1000)}ms.')
 
-person = app_commands.Group(name='person', description='...')
-
-@person.command()
-async def add(inter, name: str, address: str=None):
-    try:
-        await bot.db.execute(
-            """INSERT INTO person (name, address)
-VALUES ($1, $2);""",
-            name, address
-        )
-        await inter.response.send_message(f'Added "{name}".')
-    except asyncpg.exceptions.UniqueViolationError:
-        await inter.response.send_message('Error: This name has already been taken.')
-
-@person.command()
-async def remove(inter, name: str):
-    status = await bot.db.execute(
-        """DELETE FROM person
-WHERE name = $1;""",
-        name
-    )
-    if int(status.split()[1]):
-        await inter.response.send_message(f'Removed "{name}".')
-    else:
-        await inter.response.send_message(f'"{name}" not found.')
-
-@person.command()
-async def edit(inter, name: str, address: str=None):
-    status = await bot.db.execute(
-        """UPDATE person
-SET address = $2
-WHERE name = $1;""",
-        name, address
-    )
-    if int(status.split()[1]):
-        await inter.response.send_message(f'Changed address for "{name}".')
-    else:
-        await inter.response.send_message(f'"{name}" not found.')
-
-@person.command(name='list')
-async def names(inter):
-    rows = await bot.db.fetch('SELECT * FROM person;')
-    await inter.response.send_message('\n'.join(f'"{r["name"]}": {r["address"]}' for r in rows))
-
-bot.tree.add_command(person)
-
 async def main():
-    try:
-        utils.setup_logging()
+    utils.setup_logging()
+    async with bot:
         await bot.start(os.environ['SENJIBOT_BETA_TOKEN'])
-    finally:
-        await bot.db.close()
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
